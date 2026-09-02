@@ -1,18 +1,21 @@
 """
-Language Access Data Explorer — demo
+Language Access Data Explorer
 Internal navigation tool for the 911 dispatch / language access research team.
 
-This version runs on DUMMY, RANDOMLY GENERATED data so the team can see the
-shape of the tool before real (de-identified) data is available. Swap the
-`load_data()` function for a real Google Sheets read once the data dictionary
-and de-identified dataset are ready (see README.md).
+Runs on the real, de-identified dataset exported from the study's SPSS file
+(see data/prep_data.py to regenerate data/calls.csv from a new .sav export).
 """
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
-from datetime import datetime, timedelta
+
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+except ImportError:  # missing until pip install -r requirements.txt
+    gspread = None
+    Credentials = None
 
 # ---------------------------------------------------------------------------
 # Page setup + brand colors
@@ -67,66 +70,67 @@ st.markdown(
     '<div class="main-header"><h1>Language Access Data Explorer</h1></div>',
     unsafe_allow_html=True,
 )
-st.caption("⚠️ Demo build — all data below is randomly generated, not real call data.")
+
+SHEETS_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
 
 
-# ---------------------------------------------------------------------------
-# Dummy data generator — swap this out for the real data source later
-# ---------------------------------------------------------------------------
-@st.cache_data
-def load_data(n=1200, seed=42):
-    rng = np.random.default_rng(seed)
-
-    centers = ["Valley Communications", "SECOMM", "Verdugo", "NORCOM"]
-    center_weights = [0.28, 0.24, 0.22, 0.26]
-
-    languages = ["Spanish", "Mandarin", "Vietnamese", "Somali", "Amharic",
-                 "Russian", "Korean", "Arabic", "Tagalog", None]
-    lang_weights = [0.30, 0.12, 0.10, 0.09, 0.08, 0.07, 0.06, 0.06, 0.05, 0.07]
-
-    # rough zip pools per center so filters feel plausible
-    zip_pools = {
-        "Valley Communications": ["98032", "98002", "98042", "98058", "98003"],
-        "SECOMM": ["98118", "98168", "98188", "98198", "98146"],
-        "Verdugo": ["91201", "91205", "91214", "91208", "91011"],
-        "NORCOM": ["98033", "98052", "98004", "98007", "98074"],
-    }
-
-    start_date = datetime(2025, 1, 1)
-    dates = [start_date + timedelta(days=int(d)) for d in rng.integers(0, 210, n)]
-
-    call_center = rng.choice(centers, size=n, p=center_weights)
-    interpreter_used = rng.random(n) < 0.46
-    language = rng.choice(languages, size=n, p=lang_weights)
-    language = np.where(interpreter_used, language, None)
-
-    zip_code = [rng.choice(zip_pools[c]) for c in call_center]
-    connect_time = np.where(
-        interpreter_used,
-        rng.gamma(shape=3.0, scale=25, size=n) + 20,   # interpreter calls take longer to connect
-        rng.gamma(shape=2.0, scale=12, size=n) + 5,
-    ).round(0)
-
-    hour = rng.integers(0, 24, n)
-    time_of_day = pd.cut(
-        hour, bins=[-1, 5, 11, 17, 21, 24],
-        labels=["Overnight (12–6a)", "Morning (6a–12p)", "Afternoon (12–6p)",
-                "Evening (6–9p)", "Late Night (9p–12a)"],
-    )
-
-    df = pd.DataFrame({
-        "call_id": [f"{10000+i}" for i in range(n)],
-        "call_center": call_center,
-        "call_date": dates,
-        "interpreter_used": interpreter_used,
-        "language": language,
-        "zip_code": zip_code,
-        "time_of_day": time_of_day,
-        "connect_time_sec": connect_time.astype(int),
-    })
+def _normalize(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["zip_code"] = df["zip_code"].astype("string")
     df["call_date"] = pd.to_datetime(df["call_date"])
     return df
 
+
+def _sheet_id_and_tab():
+    """Support either top-level sheet_id or [gsheet] block in secrets.toml."""
+    if "gsheet" in st.secrets:
+        sid = st.secrets["gsheet"]["sheet_id"]
+        tab = st.secrets["gsheet"].get("worksheet", "calls")
+    else:
+        sid = st.secrets["sheet_id"]
+        tab = st.secrets.get("worksheet", "calls")
+    return sid, tab
+
+
+def _has_sheet_secrets() -> bool:
+    try:
+        return "gcp_service_account" in st.secrets and (
+            "sheet_id" in st.secrets or "gsheet" in st.secrets
+        )
+    except Exception:
+        return False
+
+
+def _load_from_sheet() -> pd.DataFrame:
+    if gspread is None or Credentials is None:
+        raise RuntimeError("Install gspread and google-auth to load from Google Sheets.")
+    creds = Credentials.from_service_account_info(
+        dict(st.secrets["gcp_service_account"]), scopes=SHEETS_SCOPES
+    )
+    sheet_id, worksheet_name = _sheet_id_and_tab()
+    worksheet = gspread.authorize(creds).open_by_key(sheet_id).worksheet(worksheet_name)
+    return pd.DataFrame(worksheet.get_all_records())
+
+
+# ---------------------------------------------------------------------------
+# Data loading — Google Sheet only (credentials in Streamlit secrets, never in git)
+# ---------------------------------------------------------------------------
+@st.cache_data(ttl=300)
+def load_data():
+    return _normalize(_load_from_sheet())
+
+
+if not _has_sheet_secrets():
+    st.error(
+        "This app reads the study data from a private Google Sheet. "
+        "Add the GCP service account and sheet_id to Streamlit secrets "
+        "(see `.streamlit/secrets.toml.example`). "
+        "`data/calls.csv` is not shipped in this repo."
+    )
+    st.stop()
 
 df = load_data()
 
@@ -136,11 +140,12 @@ df = load_data()
 st.sidebar.header("Filters")
 
 centers_sel = st.sidebar.multiselect(
-    "Call Center", options=sorted(df["call_center"].unique()),
-    default=sorted(df["call_center"].unique()),
+    "Call Center", options=sorted(df["call_center"].dropna().unique()),
+    default=sorted(df["call_center"].dropna().unique()),
 )
 
-min_date, max_date = df["call_date"].min().date(), df["call_date"].max().date()
+dated = df["call_date"].dropna()
+min_date, max_date = dated.min().date(), dated.max().date()
 date_range = st.sidebar.date_input(
     "Date Range", value=(min_date, max_date), min_value=min_date, max_value=max_date,
 )
@@ -149,13 +154,13 @@ interp_choice = st.sidebar.radio(
     "Interpreter Used?", options=["All", "Yes", "No"], horizontal=True,
 )
 
-zip_options = sorted(df["zip_code"].unique())
-zip_sel = st.sidebar.multiselect("Zip Code Area", options=zip_options, default=[])
+lang_group_options = sorted(df["lang_group"].dropna().unique())
+lang_group_sel = st.sidebar.multiselect("Language Group", options=lang_group_options, default=[])
 
-lang_options = sorted([l for l in df["language"].dropna().unique()])
-lang_sel = st.sidebar.multiselect("Language", options=lang_options, default=[])
+zip_options = sorted(df["zip_code"].dropna().unique())
+zip_sel = st.sidebar.multiselect("Zip Code", options=zip_options, default=[])
 
-tod_options = list(df["time_of_day"].cat.categories)
+tod_options = [c for c in df["time_of_day"].cat.categories] if hasattr(df["time_of_day"], "cat") else sorted(df["time_of_day"].dropna().unique())
 tod_sel = st.sidebar.multiselect("Time of Day", options=tod_options, default=[])
 
 # ---------------------------------------------------------------------------
@@ -165,20 +170,17 @@ filtered = df[df["call_center"].isin(centers_sel)]
 
 if isinstance(date_range, tuple) and len(date_range) == 2:
     start, end = date_range
-    filtered = filtered[
-        (filtered["call_date"].dt.date >= start) & (filtered["call_date"].dt.date <= end)
-    ]
+    in_range = (filtered["call_date"].dt.date >= start) & (filtered["call_date"].dt.date <= end)
+    filtered = filtered[in_range | filtered["call_date"].isna()]
 
-if interp_choice == "Yes":
-    filtered = filtered[filtered["interpreter_used"]]
-elif interp_choice == "No":
-    filtered = filtered[~filtered["interpreter_used"]]
+if interp_choice != "All":
+    filtered = filtered[filtered["interpreter_used"] == interp_choice]
+
+if lang_group_sel:
+    filtered = filtered[filtered["lang_group"].isin(lang_group_sel)]
 
 if zip_sel:
     filtered = filtered[filtered["zip_code"].isin(zip_sel)]
-
-if lang_sel:
-    filtered = filtered[filtered["language"].isin(lang_sel)]
 
 if tod_sel:
     filtered = filtered[filtered["time_of_day"].isin(tod_sel)]
@@ -187,13 +189,13 @@ if tod_sel:
 # Stat cards
 # ---------------------------------------------------------------------------
 total_calls = len(filtered)
-pct_interp = (filtered["interpreter_used"].mean() * 100) if total_calls else 0
-avg_connect = filtered["connect_time_sec"].mean() if total_calls else 0
+pct_interp = (filtered["interpreter_used"].eq("Yes").mean() * 100) if total_calls else 0
+avg_connect = filtered["interpreter_connect_min"].mean() if total_calls else 0
 
 c1, c2, c3 = st.columns(3)
 for col, value, label in zip(
     [c1, c2, c3],
-    [f"{total_calls:,}", f"{pct_interp:.0f}%", f"{avg_connect/60:.1f} min"],
+    [f"{total_calls:,}", f"{pct_interp:.0f}%", f"{avg_connect:.1f} min"],
     ["Total Calls", "Interpreter Use", "Avg Connect Time"],
 ):
     col.markdown(
@@ -203,6 +205,13 @@ for col, value, label in zip(
     )
 
 st.write("")
+
+CORAL_TEAL = {"Yes": CORAL, "No": TEAL}
+
+
+def empty_notice():
+    st.info("No calls match the current filters.")
+
 
 # ---------------------------------------------------------------------------
 # Charts
@@ -216,50 +225,160 @@ with chart_col1:
             filtered.groupby(["call_center", "interpreter_used"])
             .size().reset_index(name="count")
         )
-        summary["Interpreter"] = summary["interpreter_used"].map({True: "Used", False: "Not used"})
-        fig1 = px.bar(
-            summary, x="call_center", y="count", color="Interpreter", barmode="group",
-            color_discrete_map={"Used": CORAL, "Not used": TEAL},
-            labels={"call_center": "", "count": "Calls"},
+        fig = px.bar(
+            summary, x="call_center", y="count", color="interpreter_used", barmode="group",
+            color_discrete_map=CORAL_TEAL,
+            labels={"call_center": "", "count": "Calls", "interpreter_used": "Interpreter"},
         )
-        fig1.update_layout(legend_title="", margin=dict(t=10, b=10))
-        st.plotly_chart(fig1, use_container_width=True)
+        fig.update_layout(legend_title="", margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No calls match the current filters.")
+        empty_notice()
 
 with chart_col2:
     st.subheader("Calls per Week")
-    if total_calls:
+    dated_filtered = filtered.dropna(subset=["call_date"])
+    if len(dated_filtered):
         weekly = (
-            filtered.set_index("call_date")
+            dated_filtered.set_index("call_date")
             .resample("W")["call_id"].count()
             .reset_index(name="calls")
         )
-        fig2 = px.line(weekly, x="call_date", y="calls", labels={"call_date": "", "calls": "Calls"})
-        fig2.update_traces(line_color=PURPLE)
-        fig2.update_layout(margin=dict(t=10, b=10))
-        st.plotly_chart(fig2, use_container_width=True)
+        fig = px.line(weekly, x="call_date", y="calls", labels={"call_date": "", "calls": "Calls"})
+        fig.update_traces(line_color=PURPLE)
+        fig.update_layout(margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No calls match the current filters.")
+        empty_notice()
 
-st.subheader("Top Zip Code Areas by Volume")
+chart_col3, chart_col4 = st.columns(2)
+
+with chart_col3:
+    st.subheader("Language Groups by Call Center")
+    if total_calls:
+        summary = (
+            filtered.groupby(["call_center", "lang_group"])
+            .size().reset_index(name="count")
+        )
+        fig = px.bar(
+            summary, x="call_center", y="count", color="lang_group", barmode="stack",
+            labels={"call_center": "", "count": "Calls", "lang_group": "Language Group"},
+        )
+        fig.update_layout(legend_title="", margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        empty_notice()
+
+with chart_col4:
+    st.subheader("Hang-Ups Within Language Group")
+    st.caption("Hang-ups are rare in this dataset, so some bars will be thin.")
+    if total_calls:
+        summary = (
+            filtered.groupby(["lang_group", "hangup"])
+            .size().reset_index(name="count")
+        )
+        fig = px.bar(
+            summary, x="lang_group", y="count", color="hangup", barmode="group",
+            color_discrete_map=CORAL_TEAL,
+            labels={"lang_group": "", "count": "Calls", "hangup": "Hang-up"},
+        )
+        fig.update_layout(legend_title="", margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        empty_notice()
+
+st.subheader("Response and Onscene Time by Zip Code (Top 15 by Volume)")
 if total_calls:
+    top_zips = filtered["zip_code"].value_counts().nlargest(15).index
+    zip_filtered = filtered[filtered["zip_code"].isin(top_zips)]
     zip_summary = (
-        filtered.groupby(["zip_code", "interpreter_used"])
+        zip_filtered.groupby("zip_code")[["response_time_min", "onscene_time_min"]]
+        .mean().reset_index()
+        .melt(id_vars="zip_code", var_name="metric", value_name="minutes")
+    )
+    zip_summary["metric"] = zip_summary["metric"].map({
+        "response_time_min": "Response time",
+        "onscene_time_min": "Onscene time",
+    })
+    fig = px.bar(
+        zip_summary, x="zip_code", y="minutes", color="metric", barmode="group",
+        color_discrete_map={"Response time": CORAL, "Onscene time": TEAL},
+        labels={"zip_code": "", "minutes": "Avg Minutes", "metric": ""},
+    )
+    fig.update_layout(legend_title="", margin=dict(t=10, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    empty_notice()
+
+chart_col5, chart_col6 = st.columns(2)
+
+with chart_col5:
+    st.subheader("Jargon Use vs. Caller Compliance")
+    if total_calls:
+        summary = (
+            filtered.dropna(subset=["jargon_validation", "compliance"])
+            .groupby(["jargon_validation", "compliance"])
+            .size().reset_index(name="count")
+        )
+        fig = px.bar(
+            summary, x="jargon_validation", y="count", color="compliance", barmode="group",
+            labels={"jargon_validation": "", "count": "Calls", "compliance": "Compliance"},
+        )
+        fig.update_layout(legend_title="", margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        empty_notice()
+
+with chart_col6:
+    st.subheader("Caller Emotion vs. Emotion Validation")
+    if total_calls:
+        summary = (
+            filtered.dropna(subset=["caller_emotion", "emotion_validated"])
+            .groupby(["caller_emotion", "emotion_validated"])
+            .size().reset_index(name="count")
+        )
+        fig = px.bar(
+            summary, x="caller_emotion", y="count", color="emotion_validated", barmode="group",
+            color_discrete_map=CORAL_TEAL,
+            labels={"caller_emotion": "", "count": "Calls", "emotion_validated": "Emotion Validated"},
+        )
+        fig.update_layout(legend_title="", margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        empty_notice()
+
+st.subheader("Emergency Type Within Language Group")
+if total_calls:
+    summary = (
+        filtered.dropna(subset=["emergency_type"])
+        .groupby(["lang_group", "emergency_type"])
         .size().reset_index(name="count")
     )
-    zip_summary["Interpreter"] = zip_summary["interpreter_used"].map({True: "Used", False: "Not used"})
-    top_zips = filtered["zip_code"].value_counts().nlargest(10).index
-    zip_summary = zip_summary[zip_summary["zip_code"].isin(top_zips)]
-    fig3 = px.bar(
-        zip_summary, x="zip_code", y="count", color="Interpreter", barmode="stack",
-        color_discrete_map={"Used": CORAL, "Not used": TEAL},
-        labels={"zip_code": "", "count": "Calls"},
+    fig = px.bar(
+        summary, x="lang_group", y="count", color="emergency_type", barmode="stack",
+        labels={"lang_group": "", "count": "Calls", "emergency_type": "Emergency Type"},
     )
-    fig3.update_layout(legend_title="", margin=dict(t=10, b=10))
-    st.plotly_chart(fig3, use_container_width=True)
+    fig.update_layout(legend_title="", margin=dict(t=10, b=10))
+    st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("No calls match the current filters.")
+    empty_notice()
+
+st.subheader("Language Groups by Interpreter Connection Time")
+if total_calls:
+    summary = (
+        filtered.dropna(subset=["interpreter_connect_min"])
+        .groupby("lang_group")["interpreter_connect_min"]
+        .mean().reset_index()
+    )
+    fig = px.bar(
+        summary, x="lang_group", y="interpreter_connect_min",
+        labels={"lang_group": "", "interpreter_connect_min": "Avg Connect Time (min)"},
+        color_discrete_sequence=[PURPLE],
+    )
+    fig.update_layout(margin=dict(t=10, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    empty_notice()
 
 # ---------------------------------------------------------------------------
 # Data table + download

@@ -1,16 +1,53 @@
-# Language Access Data Explorer — Demo
+# Language Access Data Explorer
 
-This is an early working demo of the internal data tool from the proposal — a webpage where you can filter and visualize the dataset yourself instead of requesting exports.
+Internal data navigation tool for the 911 dispatch / language access research team.
+The app loads the **de-identified study dataset from a private Google Sheet** (not from
+files in this repo). Filters, charts, and CSV download of the current filtered view
+all run against that sheet.
 
-**This version runs on made-up, randomly generated data.** Nothing you see reflects real calls, centers, or outcomes — it's here so you can get a feel for how the tool works before the real dataset is ready.
+## Access model (important)
 
-## How to use it
+This GitHub repo can stay **public** — the study data is **not** in the repo.
 
-Open the link: **[(https://language-access-data-explorer.streamlit.app/)]**
+Access is gated in two places:
 
-No login needed for this demo version. Once real data is in place, access will be limited to the team via UW email.
+1. **Google Sheet** — shared only with the research team + the app's service account
+   (`sheets-reader@….iam.gserviceaccount.com`) as Viewer.
+2. **Streamlit Cloud sharing** — the deployed app must be **restricted/private**, with
+   only team emails allowed. If the Streamlit app is public, anyone with the link can
+   see the data through the UI even though the Sheet itself is private.
 
-- Use the filters on the left to narrow down by call center, date range, interpreter use, zip code area, language, or time of day
-- The numbers and charts at the top update automatically as you change filters
-- Scroll down for the full data table of whatever you've filtered to
-- Click **Download filtered data as CSV** to export whatever view you've built, for use in a report or slide
+Never commit `.streamlit/secrets.toml` or a service-account JSON key.
+
+## Run locally
+
+1. Copy `.streamlit/secrets.toml.example` → `.streamlit/secrets.toml` and fill in the
+   service-account fields + `sheet_id` / `worksheet`.
+2. Share the Sheet with the service account email as Viewer.
+3. `pip install -r requirements.txt && streamlit run app.py`
+
+## What's on the dashboard
+
+- **Stat cards:** total calls, interpreter use %, average interpreter connect time.
+- **Filters:** call center, date range, interpreter used, language group, zip code, time of day.
+- **Charts:** interpreter use, weekly volume, language groups, hang-ups, response/onscene
+  times, jargon vs compliance, emotion validation, emergency type, connect times.
+- **Filtered data table** with CSV download of the current filter view.
+
+## Refreshing the data
+
+Raw SPSS (`.sav`) stays offline / off-repo (see `.gitignore`). To refresh the Sheet:
+
+```bash
+python data/prep_data.py path/to/new_file.sav
+```
+
+That writes a local `data/calls.csv` (also gitignored). Re-import that CSV into the
+Google Sheet tab (or overwrite the tab). The live app picks up changes on the next
+cache refresh (about 5 minutes), or after a redeploy.
+
+## Streamlit Cloud setup checklist
+
+1. Deploy from this repo; paste the same secrets into **App settings → Secrets**.
+2. Under **Sharing**, set the app to **restricted** and add team emails.
+3. Confirm a logged-out / non-listed account cannot open the app.
