@@ -317,6 +317,7 @@ if total_calls:
         color_discrete_map={"Response time": CORAL, "Onscene time": TEAL},
         labels={"zip_code": "", "minutes": "Avg Minutes", "metric": ""},
     )
+    fig.update_xaxes(type="category", categoryorder="array", categoryarray=list(top_zips))
     fig.update_layout(legend_title="", margin=dict(t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 else:
