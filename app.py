@@ -392,16 +392,3 @@ if total_calls:
     st.plotly_chart(fig, use_container_width=True)
 else:
     empty_notice()
-
-# ---------------------------------------------------------------------------
-# Data table + download
-# ---------------------------------------------------------------------------
-st.subheader("Filtered Data")
-st.dataframe(filtered.reset_index(drop=True), use_container_width=True, height=300)
-
-st.download_button(
-    "Download filtered data as CSV",
-    data=filtered.to_csv(index=False).encode("utf-8"),
-    file_name="filtered_call_data.csv",
-    mime="text/csv",
-)
