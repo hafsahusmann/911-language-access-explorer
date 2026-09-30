@@ -77,10 +77,22 @@ SHEETS_SCOPES = [
 ]
 
 
+NUMERIC_COLUMNS = ["interpreter_connect_min", "response_time_min", "onscene_time_min"]
+
+
+def _clean_zip(series: pd.Series) -> pd.Series:
+    """Treat zip codes as a category: strip float artifacts from Sheets
+    (e.g. 98501.0 -> "98501") and turn blank cells into real nulls."""
+    zip_str = series.astype("string").str.replace(r"\.0$", "", regex=True)
+    return zip_str.replace("", pd.NA)
+
+
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["zip_code"] = df["zip_code"].astype("string")
+    df["zip_code"] = _clean_zip(df["zip_code"])
     df["call_date"] = pd.to_datetime(df["call_date"])
+    for col in NUMERIC_COLUMNS:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 
