@@ -226,8 +226,12 @@ def empty_notice():
 
 
 # ---------------------------------------------------------------------------
-# Charts
+# Charts, grouped by category (see the team's plot-tracking sheet).
+# Language Access is kept first; order within a category doesn't matter.
+# When adding a new chart, pick (or add) a category section for it below.
 # ---------------------------------------------------------------------------
+
+st.header("Language Access")
 chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
@@ -248,24 +252,6 @@ with chart_col1:
         empty_notice()
 
 with chart_col2:
-    st.subheader("Calls per Week")
-    dated_filtered = filtered.dropna(subset=["call_date"])
-    if len(dated_filtered):
-        weekly = (
-            dated_filtered.set_index("call_date")
-            .resample("W")["call_id"].count()
-            .reset_index(name="calls")
-        )
-        fig = px.line(weekly, x="call_date", y="calls", labels={"call_date": "", "calls": "Calls"})
-        fig.update_traces(line_color=PURPLE)
-        fig.update_layout(margin=dict(t=10, b=10))
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        empty_notice()
-
-chart_col3, chart_col4 = st.columns(2)
-
-with chart_col3:
     st.subheader("Language Groups by Call Center")
     if total_calls:
         summary = (
@@ -281,23 +267,59 @@ with chart_col3:
     else:
         empty_notice()
 
-with chart_col4:
-    st.subheader("Hang-Ups Within Language Group")
-    st.caption("Hang-ups are rare in this dataset, so some bars will be thin.")
+chart_col3, chart_col4 = st.columns(2)
+
+with chart_col3:
+    st.subheader("Emergency Type Within Language Group")
     if total_calls:
         summary = (
-            filtered.groupby(["lang_group", "hangup"])
+            filtered.dropna(subset=["emergency_type"])
+            .groupby(["lang_group", "emergency_type"])
             .size().reset_index(name="count")
         )
         fig = px.bar(
-            summary, x="lang_group", y="count", color="hangup", barmode="group",
-            color_discrete_map=CORAL_TEAL,
-            labels={"lang_group": "", "count": "Calls", "hangup": "Hang-up"},
+            summary, x="lang_group", y="count", color="emergency_type", barmode="stack",
+            labels={"lang_group": "", "count": "Calls", "emergency_type": "Emergency Type"},
         )
         fig.update_layout(legend_title="", margin=dict(t=10, b=10))
         st.plotly_chart(fig, use_container_width=True)
     else:
         empty_notice()
+
+with chart_col4:
+    st.subheader("Language Groups by Interpreter Connection Time")
+    if total_calls:
+        summary = (
+            filtered.dropna(subset=["interpreter_connect_min"])
+            .groupby("lang_group")["interpreter_connect_min"]
+            .mean().reset_index()
+        )
+        fig = px.bar(
+            summary, x="lang_group", y="interpreter_connect_min",
+            labels={"lang_group": "", "interpreter_connect_min": "Avg Connect Time (min)"},
+            color_discrete_sequence=[PURPLE],
+        )
+        fig.update_layout(margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        empty_notice()
+
+st.header("Response Patterns")
+
+st.subheader("Calls per Week")
+dated_filtered = filtered.dropna(subset=["call_date"])
+if len(dated_filtered):
+    weekly = (
+        dated_filtered.set_index("call_date")
+        .resample("W")["call_id"].count()
+        .reset_index(name="calls")
+    )
+    fig = px.line(weekly, x="call_date", y="calls", labels={"call_date": "", "calls": "Calls"})
+    fig.update_traces(line_color=PURPLE)
+    fig.update_layout(margin=dict(t=10, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    empty_notice()
 
 st.subheader("Response and Onscene Time by Zip Code (Top 15 by Volume)")
 if total_calls:
@@ -323,6 +345,26 @@ if total_calls:
 else:
     empty_notice()
 
+st.header("Caller Behavior")
+
+st.subheader("Hang-Ups Within Language Group")
+st.caption("Hang-ups are rare in this dataset, so some bars will be thin.")
+if total_calls:
+    summary = (
+        filtered.groupby(["lang_group", "hangup"])
+        .size().reset_index(name="count")
+    )
+    fig = px.bar(
+        summary, x="lang_group", y="count", color="hangup", barmode="group",
+        color_discrete_map=CORAL_TEAL,
+        labels={"lang_group": "", "count": "Calls", "hangup": "Hang-up"},
+    )
+    fig.update_layout(legend_title="", margin=dict(t=10, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    empty_notice()
+
+st.header("Dispatcher Communication")
 chart_col5, chart_col6 = st.columns(2)
 
 with chart_col5:
@@ -359,36 +401,3 @@ with chart_col6:
         st.plotly_chart(fig, use_container_width=True)
     else:
         empty_notice()
-
-st.subheader("Emergency Type Within Language Group")
-if total_calls:
-    summary = (
-        filtered.dropna(subset=["emergency_type"])
-        .groupby(["lang_group", "emergency_type"])
-        .size().reset_index(name="count")
-    )
-    fig = px.bar(
-        summary, x="lang_group", y="count", color="emergency_type", barmode="stack",
-        labels={"lang_group": "", "count": "Calls", "emergency_type": "Emergency Type"},
-    )
-    fig.update_layout(legend_title="", margin=dict(t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    empty_notice()
-
-st.subheader("Language Groups by Interpreter Connection Time")
-if total_calls:
-    summary = (
-        filtered.dropna(subset=["interpreter_connect_min"])
-        .groupby("lang_group")["interpreter_connect_min"]
-        .mean().reset_index()
-    )
-    fig = px.bar(
-        summary, x="lang_group", y="interpreter_connect_min",
-        labels={"lang_group": "", "interpreter_connect_min": "Avg Connect Time (min)"},
-        color_discrete_sequence=[PURPLE],
-    )
-    fig.update_layout(margin=dict(t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    empty_notice()
