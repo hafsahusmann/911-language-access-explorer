@@ -202,13 +202,15 @@ if tod_sel:
 # ---------------------------------------------------------------------------
 total_calls = len(filtered)
 pct_interp = (filtered["interpreter_used"].eq("Yes").mean() * 100) if total_calls else 0
-avg_connect = filtered["interpreter_connect_min"].mean() if total_calls else 0
+# interpreter_connect_min = OPI connection time minus access time — the full
+# time a caller/PST spent on hold waiting for an interpreter (system delay).
+avg_system_delay = filtered["interpreter_connect_min"].mean() if total_calls else 0
 
 c1, c2, c3 = st.columns(3)
 for col, value, label in zip(
     [c1, c2, c3],
-    [f"{total_calls:,}", f"{pct_interp:.0f}%", f"{avg_connect:.1f} min"],
-    ["Total Calls", "Interpreter Use", "Avg Connect Time"],
+    [f"{total_calls:,}", f"{pct_interp:.0f}%", f"{avg_system_delay:.1f} min"],
+    ["Total Calls", "Interpreter Use", "Avg System Delay"],
 ):
     col.markdown(
         f'<div class="stat-card"><div class="value">{value}</div>'
@@ -269,7 +271,7 @@ if total_calls:
         .agg(
             calls=("call_id", "count"),
             pct_ll=("interpreter_used", lambda s: (s == "Yes").mean() * 100),
-            avg_connect=("interpreter_connect_min", "mean"),
+            avg_system_delay=("interpreter_connect_min", "mean"),
             avg_response=("response_time_min", "mean"),
             avg_onscene=("onscene_time_min", "mean"),
         )
@@ -286,7 +288,7 @@ if total_calls:
         )
         col.caption(
             f"{row.pct_ll:.0f}% LL use  \n"
-            f"Connect: {row.avg_connect:.1f} min  \n"
+            f"System delay: {row.avg_system_delay:.1f} min  \n"
             f"Response: {row.avg_response:.1f} min  \n"
             f"Onscene: {row.avg_onscene:.1f} min"
         )
@@ -368,7 +370,8 @@ with chart_col3:
         empty_notice()
 
 with chart_col4:
-    st.subheader("Language Groups by Interpreter Connection Time")
+    st.subheader("Language Groups by System Delay")
+    st.caption("System delay = OPI connection time minus access time (full time on hold).")
     if total_calls:
         summary = (
             filtered.dropna(subset=["interpreter_connect_min"])
@@ -377,7 +380,7 @@ with chart_col4:
         )
         fig = px.bar(
             summary, x="lang_group", y="interpreter_connect_min",
-            labels={"lang_group": "", "interpreter_connect_min": "Avg Connect Time (min)"},
+            labels={"lang_group": "", "interpreter_connect_min": "Avg System Delay (min)"},
             color_discrete_sequence=[PURPLE],
         )
         fig.update_layout(margin=dict(t=10, b=10))
