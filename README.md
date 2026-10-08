@@ -30,6 +30,12 @@ Never commit `.streamlit/secrets.toml` or a service-account JSON key.
 
 - **Stat cards:** total calls, interpreter use %, average interpreter connect time.
 - **Filters:** call center, date range, interpreter used, language group, zip code, time of day.
+- **Call Center Detail:** per-center stat cards (calls, LL use %, connect/response/onscene
+  times) and a response/onscene time comparison chart, with an expander stating the
+  sampling context (purposive sampling, LL oversampling at Verdugo, Benton/Franklin's
+  later/backfilled addition, one center's data gap) so cross-center comparisons aren't
+  misread as real performance differences — see the manuscript's Sample/Procedures and
+  Limitations sections.
 - **Charts:** interpreter use, weekly volume, language groups, hang-ups, response/onscene
   times, jargon vs compliance, emotion validation, emergency type, connect times.
 - **Filtered data table** with CSV download of the current filter view.

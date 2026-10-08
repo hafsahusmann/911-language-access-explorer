@@ -231,6 +231,87 @@ def empty_notice():
 # When adding a new chart, pick (or add) a category section for it below.
 # ---------------------------------------------------------------------------
 
+st.header("Call Center Detail")
+
+with st.expander("About these four call centers — read before comparing", expanded=True):
+    st.markdown(
+        """
+Study calls come from **four Emergency Communication Centers (ECCs)**: Valley,
+NORCOM, and Benton/Franklin in Washington State, and Verdugo in California. All
+four follow Criteria-Based Dispatch (CBD) or closely related protocols, but they
+were **not sampled the same way**, so raw center-to-center differences below
+reflect study design as much as (or more than) real differences between centers:
+
+- **Purposive sampling, not real-world volume.** Each month, calls were drawn
+  as 15 Language Line (LL) and 15 non-LL calls per center. Center-level LL-use
+  rates and call counts here do not reflect each center's actual LL usage or
+  volume.
+- **LL calls were oversampled from Verdugo (CA).** Two of the three Washington
+  centers had lower-than-anticipated LL call volume, so LL calls were
+  oversampled from Verdugo to maintain analytic power — this inflates its LL
+  share relative to the Washington centers.
+- **Benton/Franklin joined the study partway through**, added later to supply
+  a rural ECC perspective and more LL calls. Its sample is backfilled and
+  covers a shorter window than the other three centers, and it is the
+  smallest sample of the four.
+- **One center had a two-month gap in data collection**, so the study does
+  not have full capture of all language-barrier calls from two of the four
+  centers.
+
+Treat the breakdowns below as descriptive context for this dataset, not as
+evidence about which call center performs better.
+        """
+    )
+
+if total_calls:
+    center_summary = (
+        filtered.groupby("call_center")
+        .agg(
+            calls=("call_id", "count"),
+            pct_ll=("interpreter_used", lambda s: (s == "Yes").mean() * 100),
+            avg_connect=("interpreter_connect_min", "mean"),
+            avg_response=("response_time_min", "mean"),
+            avg_onscene=("onscene_time_min", "mean"),
+        )
+        .reset_index()
+        .sort_values("calls", ascending=False)
+    )
+
+    center_cols = st.columns(len(center_summary))
+    for col, row in zip(center_cols, center_summary.itertuples()):
+        col.markdown(
+            f'<div class="stat-card"><div class="value">{row.calls}</div>'
+            f'<div class="label">{row.call_center}</div></div>',
+            unsafe_allow_html=True,
+        )
+        col.caption(
+            f"{row.pct_ll:.0f}% LL use  \n"
+            f"Connect: {row.avg_connect:.1f} min  \n"
+            f"Response: {row.avg_response:.1f} min  \n"
+            f"Onscene: {row.avg_onscene:.1f} min"
+        )
+
+    st.write("")
+
+    center_time_summary = (
+        filtered.groupby("call_center")[["response_time_min", "onscene_time_min"]]
+        .mean().reset_index()
+        .melt(id_vars="call_center", var_name="metric", value_name="minutes")
+    )
+    center_time_summary["metric"] = center_time_summary["metric"].map({
+        "response_time_min": "Response time",
+        "onscene_time_min": "Onscene time",
+    })
+    fig = px.bar(
+        center_time_summary, x="call_center", y="minutes", color="metric", barmode="group",
+        color_discrete_map={"Response time": CORAL, "Onscene time": TEAL},
+        labels={"call_center": "", "minutes": "Avg Minutes", "metric": ""},
+    )
+    fig.update_layout(legend_title="", margin=dict(t=10, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    empty_notice()
+
 st.header("Language Access")
 chart_col1, chart_col2 = st.columns(2)
 
