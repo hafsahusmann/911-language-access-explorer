@@ -218,6 +218,13 @@ for col, value, label in zip(
         unsafe_allow_html=True,
     )
 
+st.caption(
+    "Total Calls = count of `call_id` in the current filter. Interpreter Use = share "
+    "of `interpreter_used` equal to \"Yes.\" Avg System Delay = mean of "
+    "`interpreter_connect_min` (OPI connection timestamp minus OPI access timestamp — "
+    "the minutes a caller/PST spent on hold waiting for an interpreter to pick up)."
+)
+
 st.write("")
 
 CORAL_TEAL = {"Yes": CORAL, "No": TEAL}
@@ -266,6 +273,12 @@ evidence about which call center performs better.
     )
 
 if total_calls:
+    st.caption(
+        "Each card groups calls by `call_center` and shows: count of `call_id`; "
+        "% of `interpreter_used` = \"Yes\"; and the mean, per center, of "
+        "`interpreter_connect_min` (system delay), `response_time_min` (dispatch "
+        "time), and `onscene_time_min` (onscene time), all in minutes."
+    )
     center_summary = (
         filtered.groupby("call_center")
         .agg(
@@ -295,6 +308,10 @@ if total_calls:
 
     st.write("")
 
+    st.caption(
+        "Mean `response_time_min` (dispatch time) and `onscene_time_min` (onscene "
+        "time) per `call_center`, in minutes."
+    )
     center_time_summary = (
         filtered.groupby("call_center")[["response_time_min", "onscene_time_min"]]
         .mean().reset_index()
@@ -326,7 +343,8 @@ with chart_col1:
         "true proportions of interpreter use. For example, Language Line calls were "
         "purposefully oversampled from Benton/Franklin and Verdugo. Similarly, high "
         "acuity BLS calls were included in the NORCOM sample to increase the "
-        "proportion of Language Line calls from that site."
+        "proportion of Language Line calls from that site.\n\n"
+        "Variables: `call_center`, `interpreter_used` (Yes/No). Bars count `call_id`."
     )
     if total_calls:
         summary = (
@@ -352,7 +370,9 @@ with chart_col2:
         "interpreter. High-frequency languages include: Russian, Vietnamese, Armenian, "
         "and Mandarin. Low frequency languages include: Amharic, Arabic, Cantonese, "
         "Creole, Dari, Farsi, French, Japanese, Korean, Nepali, Pashto, Persian, "
-        "Portuguese, Punjabi, Somali, Thai, Tigrinya, and Ukrainian."
+        "Portuguese, Punjabi, Somali, Thai, Tigrinya, and Ukrainian.\n\n"
+        "Variables: `call_center`, `lang_group` (Spanish / High-frequency / "
+        "Low-frequency / Unknown). Bars count `call_id`."
     )
     if total_calls:
         summary = (
@@ -372,6 +392,11 @@ chart_col3, chart_col4 = st.columns(2)
 
 with chart_col3:
     st.subheader("Emergency Type Within Language Group")
+    st.caption(
+        "Variables: `lang_group`, `emergency_type` (the call's final incident/type "
+        "code — e.g. respiratory distress, cardiac arrest). Bars count `call_id`; "
+        "calls with no recorded `emergency_type` are dropped."
+    )
     if total_calls:
         summary = (
             filtered.dropna(subset=["emergency_type"])
@@ -395,7 +420,8 @@ with chart_col4:
         "dropped — very few of those calls actually connected to an interpreter. "
         "In the published study, system delay ranged from 27s (SD 22) for Spanish "
         "speakers to 133s (SD 113) for Russian speakers — the shortest and longest "
-        "among the five most common languages (manuscript Results)."
+        "among the five most common languages (manuscript Results).\n\n"
+        "Variables: `lang_group`, `interpreter_connect_min`."
     )
     if total_calls:
         connect = filtered.dropna(subset=["interpreter_connect_min"])
@@ -420,14 +446,18 @@ with chart_col4:
 
 st.header("Response Patterns")
 st.caption(
-    "Response time = manuscript Table 2's \"time to first dispatch\"; onscene time = "
-    "\"time to first arrival on scene.\" Published study-wide medians [IQR]: dispatch "
-    "1.59 min [0.78, 1.93] (non-LL 1.26, LL 2.01); arrival on scene 7.52 min "
-    "[5.62, 8.60] (non-LL 7.09, LL 8.13) — useful as a sanity check against whatever "
-    "filtered subset you're viewing below."
+    "`response_time_min` = manuscript Table 2's \"time to first dispatch\"; "
+    "`onscene_time_min` = \"time to first arrival on scene.\" Published study-wide "
+    "medians [IQR]: dispatch 1.59 min [0.78, 1.93] (non-LL 1.26, LL 2.01); arrival "
+    "on scene 7.52 min [5.62, 8.60] (non-LL 7.09, LL 8.13) — useful as a sanity "
+    "check against whatever filtered subset you're viewing below."
 )
 
 st.subheader("Calls per Week")
+st.caption(
+    "Variables: `call_date`, `call_id`. Weekly count of `call_id`, grouped by the "
+    "week of `call_date`; calls with no recorded `call_date` are excluded."
+)
 dated_filtered = filtered.dropna(subset=["call_date"])
 if len(dated_filtered):
     weekly = (
@@ -443,6 +473,11 @@ else:
     empty_notice()
 
 st.subheader("Dispatch and Onscene Time by Zip Code (Top 15 by Volume)")
+st.caption(
+    "Variables: `zip_code`, `response_time_min` (dispatch time), `onscene_time_min` "
+    "(onscene time). Mean minutes per zip code, limited to the 15 zip codes with the "
+    "most calls (`call_id`) in the current filter; n per zip code shown in the axis label."
+)
 if total_calls:
     zip_counts = filtered["zip_code"].value_counts()
     top_zips = zip_counts.nlargest(15).index
@@ -475,7 +510,10 @@ else:
 st.header("Caller Behavior")
 
 st.subheader("Hang-Ups Within Language Group")
-st.caption("Hang-ups are rare in this dataset, so some bars will be thin.")
+st.caption(
+    "Variables: `lang_group`, `hangup` (Yes/No). Bars count `call_id`. "
+    "Hang-ups are rare in this dataset, so some bars will be thin."
+)
 if total_calls:
     summary = (
         filtered.groupby(["lang_group", "hangup"])
@@ -497,7 +535,12 @@ chart_col5, chart_col6 = st.columns(2)
 
 with chart_col5:
     st.subheader("Jargon Use vs. Caller Compliance")
-    st.caption("Coral = No compliance. Teal = Compliance.")
+    st.caption(
+        "Variables: `jargon_validation` (whether/how the dispatcher validated jargon "
+        "the caller used: no validation, validated with jargon, or validated without "
+        "jargon), `compliance` (whether the caller followed prearrival instructions). "
+        "Bars count `call_id`. Coral = No compliance. Teal = Compliance."
+    )
     if total_calls:
         summary = (
             filtered.dropna(subset=["jargon_validation", "compliance"])
@@ -516,6 +559,11 @@ with chart_col5:
 
 with chart_col6:
     st.subheader("Caller Emotion vs. Emotion Validation")
+    st.caption(
+        "Variables: `caller_emotion` (the caller's baseline emotion level: None, "
+        "Some, A lot), `emotion_validated` (Yes/No — whether the call-taker "
+        "acknowledged/validated the caller's emotion). Bars count `call_id`."
+    )
     if total_calls:
         summary = (
             filtered.dropna(subset=["caller_emotion", "emotion_validated"])
