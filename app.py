@@ -319,6 +319,10 @@ chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
     st.subheader("Interpreter Use by Call Center")
+    st.caption(
+        "These proportions are likely not representative of real-world rates "
+        "given the study's purposive over-sampling of LL calls (manuscript Table 1 note)."
+    )
     if total_calls:
         summary = (
             filtered.groupby(["call_center", "interpreter_used"])
@@ -336,6 +340,10 @@ with chart_col1:
 
 with chart_col2:
     st.subheader("Language Groups by Call Center")
+    st.caption(
+        "Same caveat as the chart to the left — language group mix here reflects "
+        "the study's sampling design, not each call center's real caseload."
+    )
     if total_calls:
         summary = (
             filtered.groupby(["call_center", "lang_group"])
@@ -371,7 +379,12 @@ with chart_col3:
 
 with chart_col4:
     st.subheader("Language Groups by System Delay")
-    st.caption("System delay = OPI connection time minus access time (full time on hold).")
+    st.caption(
+        "System delay = OPI connection time minus access time (full time on hold). "
+        "In the published study, system delay ranged from 27s (SD 22) for Spanish "
+        "speakers to 133s (SD 113) for Russian speakers — the shortest and longest "
+        "among the five most common languages (manuscript Results)."
+    )
     if total_calls:
         summary = (
             filtered.dropna(subset=["interpreter_connect_min"])
@@ -389,6 +402,13 @@ with chart_col4:
         empty_notice()
 
 st.header("Response Patterns")
+st.caption(
+    "Response time = manuscript Table 2's \"time to first dispatch\"; onscene time = "
+    "\"time to first arrival on scene.\" Published study-wide medians [IQR]: dispatch "
+    "1.59 min [0.78, 1.93] (non-LL 1.26, LL 2.01); arrival on scene 7.52 min "
+    "[5.62, 8.60] (non-LL 7.09, LL 8.13) — useful as a sanity check against whatever "
+    "filtered subset you're viewing below."
+)
 
 st.subheader("Calls per Week")
 dated_filtered = filtered.dropna(subset=["call_date"])
