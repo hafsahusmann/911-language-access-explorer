@@ -248,10 +248,10 @@ reflect study design as much as (or more than) real differences between centers:
   as 15 Language Line (LL) and 15 non-LL calls per center. Center-level LL-use
   rates and call counts here do not reflect each center's actual LL usage or
   volume.
-- **LL calls were oversampled from Verdugo (CA).** Two of the three Washington
-  centers had lower-than-anticipated LL call volume, so LL calls were
-  oversampled from Verdugo to maintain analytic power — this inflates its LL
-  share relative to the Washington centers.
+- **LL calls were oversampled from Benton/Franklin and Verdugo**, and high
+  acuity BLS calls were added to the NORCOM sample, to balance unequal group
+  sizes and maintain analytic power — this inflates LL share at those sites
+  relative to a true random sample.
 - **Benton/Franklin joined the study partway through**, added later to supply
   a rural ECC perspective and more LL calls. Its sample is backfilled and
   covers a shorter window than the other three centers, and it is the
@@ -289,7 +289,7 @@ if total_calls:
         col.caption(
             f"{row.pct_ll:.0f}% LL use  \n"
             f"System delay: {row.avg_system_delay:.1f} min  \n"
-            f"Response: {row.avg_response:.1f} min  \n"
+            f"Dispatch: {row.avg_response:.1f} min  \n"
             f"Onscene: {row.avg_onscene:.1f} min"
         )
 
@@ -301,12 +301,12 @@ if total_calls:
         .melt(id_vars="call_center", var_name="metric", value_name="minutes")
     )
     center_time_summary["metric"] = center_time_summary["metric"].map({
-        "response_time_min": "Response time",
+        "response_time_min": "Dispatch time",
         "onscene_time_min": "Onscene time",
     })
     fig = px.bar(
         center_time_summary, x="call_center", y="minutes", color="metric", barmode="group",
-        color_discrete_map={"Response time": CORAL, "Onscene time": TEAL},
+        color_discrete_map={"Dispatch time": CORAL, "Onscene time": TEAL},
         labels={"call_center": "", "minutes": "Avg Minutes", "metric": ""},
     )
     fig.update_layout(legend_title="", margin=dict(t=10, b=10))
@@ -320,8 +320,13 @@ chart_col1, chart_col2 = st.columns(2)
 with chart_col1:
     st.subheader("Interpreter Use by Call Center")
     st.caption(
-        "These proportions are likely not representative of real-world rates "
-        "given the study's purposive over-sampling of LL calls (manuscript Table 1 note)."
+        "Note. Due to random stratified sampling procedures and adjustments made to "
+        "sampling strategy to balance unequal group sizes, the proportions displayed "
+        "above only apply to this specific sample and should not be taken to represent "
+        "true proportions of interpreter use. For example, Language Line calls were "
+        "purposefully oversampled from Benton/Franklin and Verdugo. Similarly, high "
+        "acuity BLS calls were included in the NORCOM sample to increase the "
+        "proportion of Language Line calls from that site."
     )
     if total_calls:
         summary = (
@@ -341,8 +346,13 @@ with chart_col1:
 with chart_col2:
     st.subheader("Language Groups by Call Center")
     st.caption(
-        "Same caveat as the chart to the left — language group mix here reflects "
-        "the study's sampling design, not each call center's real caseload."
+        "Note. 90% of calls with a known caller language were identified through the "
+        "process of requesting an interpreter. As a result, the unknown language group "
+        "is almost entirely made up of Language Barrier calls that did not access an "
+        "interpreter. High-frequency languages include: Russian, Vietnamese, Armenian, "
+        "and Mandarin. Low frequency languages include: Amharic, Arabic, Cantonese, "
+        "Creole, Dari, Farsi, French, Japanese, Korean, Nepali, Pashto, Persian, "
+        "Portuguese, Punjabi, Somali, Thai, Tigrinya, and Ukrainian."
     )
     if total_calls:
         summary = (
@@ -378,22 +388,29 @@ with chart_col3:
         empty_notice()
 
 with chart_col4:
-    st.subheader("Language Groups by System Delay")
+    st.subheader("Language Line Hold Duration (System Delays) by Language Frequency Groups")
     st.caption(
         "System delay = OPI connection time minus access time (full time on hold). "
+        "Bars show the mean with error bars spanning the IQR. The Unknown group is "
+        "dropped — very few of those calls actually connected to an interpreter. "
         "In the published study, system delay ranged from 27s (SD 22) for Spanish "
         "speakers to 133s (SD 113) for Russian speakers — the shortest and longest "
         "among the five most common languages (manuscript Results)."
     )
     if total_calls:
+        connect = filtered.dropna(subset=["interpreter_connect_min"])
+        connect = connect[connect["lang_group"] != "Unknown"]
         summary = (
-            filtered.dropna(subset=["interpreter_connect_min"])
-            .groupby("lang_group")["interpreter_connect_min"]
-            .mean().reset_index()
+            connect.groupby("lang_group")["interpreter_connect_min"]
+            .agg(mean="mean", q25=lambda s: s.quantile(0.25), q75=lambda s: s.quantile(0.75))
+            .reset_index()
         )
+        summary["err_plus"] = summary["q75"] - summary["mean"]
+        summary["err_minus"] = summary["mean"] - summary["q25"]
         fig = px.bar(
-            summary, x="lang_group", y="interpreter_connect_min",
-            labels={"lang_group": "", "interpreter_connect_min": "Avg System Delay (min)"},
+            summary, x="lang_group", y="mean",
+            error_y="err_plus", error_y_minus="err_minus",
+            labels={"lang_group": "", "mean": "Avg System Delay (min)"},
             color_discrete_sequence=[PURPLE],
         )
         fig.update_layout(margin=dict(t=10, b=10))
@@ -425,9 +442,10 @@ if len(dated_filtered):
 else:
     empty_notice()
 
-st.subheader("Response and Onscene Time by Zip Code (Top 15 by Volume)")
+st.subheader("Dispatch and Onscene Time by Zip Code (Top 15 by Volume)")
 if total_calls:
-    top_zips = filtered["zip_code"].value_counts().nlargest(15).index
+    zip_counts = filtered["zip_code"].value_counts()
+    top_zips = zip_counts.nlargest(15).index
     zip_filtered = filtered[filtered["zip_code"].isin(top_zips)]
     zip_summary = (
         zip_filtered.groupby("zip_code")[["response_time_min", "onscene_time_min"]]
@@ -435,15 +453,20 @@ if total_calls:
         .melt(id_vars="zip_code", var_name="metric", value_name="minutes")
     )
     zip_summary["metric"] = zip_summary["metric"].map({
-        "response_time_min": "Response time",
+        "response_time_min": "Dispatch time",
         "onscene_time_min": "Onscene time",
     })
+    zip_labels = {z: f"{z} (n={zip_counts[z]})" for z in top_zips}
+    zip_summary["zip_label"] = zip_summary["zip_code"].map(zip_labels)
     fig = px.bar(
-        zip_summary, x="zip_code", y="minutes", color="metric", barmode="group",
-        color_discrete_map={"Response time": CORAL, "Onscene time": TEAL},
-        labels={"zip_code": "", "minutes": "Avg Minutes", "metric": ""},
+        zip_summary, x="zip_label", y="minutes", color="metric", barmode="group",
+        color_discrete_map={"Dispatch time": CORAL, "Onscene time": TEAL},
+        labels={"zip_label": "", "minutes": "Avg Minutes", "metric": ""},
     )
-    fig.update_xaxes(type="category", categoryorder="array", categoryarray=list(top_zips))
+    fig.update_xaxes(
+        type="category", categoryorder="array",
+        categoryarray=[zip_labels[z] for z in top_zips],
+    )
     fig.update_layout(legend_title="", margin=dict(t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 else:
@@ -458,10 +481,11 @@ if total_calls:
         filtered.groupby(["lang_group", "hangup"])
         .size().reset_index(name="count")
     )
+    summary["hangup"] = summary["hangup"].map({"Yes": "Hang Up", "No": "No Hang Up"})
     fig = px.bar(
         summary, x="lang_group", y="count", color="hangup", barmode="group",
-        color_discrete_map=CORAL_TEAL,
-        labels={"lang_group": "", "count": "Calls", "hangup": "Hang-up"},
+        color_discrete_map={"Hang Up": CORAL, "No Hang Up": TEAL},
+        labels={"lang_group": "", "count": "Calls", "hangup": ""},
     )
     fig.update_layout(legend_title="", margin=dict(t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
@@ -473,6 +497,7 @@ chart_col5, chart_col6 = st.columns(2)
 
 with chart_col5:
     st.subheader("Jargon Use vs. Caller Compliance")
+    st.caption("Coral = No compliance. Teal = Compliance.")
     if total_calls:
         summary = (
             filtered.dropna(subset=["jargon_validation", "compliance"])
@@ -481,7 +506,8 @@ with chart_col5:
         )
         fig = px.bar(
             summary, x="jargon_validation", y="count", color="compliance", barmode="group",
-            labels={"jargon_validation": "", "count": "Calls", "compliance": "Compliance"},
+            color_discrete_map={"No compliance": CORAL, "Compliance": TEAL},
+            labels={"jargon_validation": "", "count": "Calls", "compliance": ""},
         )
         fig.update_layout(legend_title="", margin=dict(t=10, b=10))
         st.plotly_chart(fig, use_container_width=True)
@@ -499,6 +525,7 @@ with chart_col6:
         fig = px.bar(
             summary, x="caller_emotion", y="count", color="emotion_validated", barmode="group",
             color_discrete_map=CORAL_TEAL,
+            category_orders={"caller_emotion": ["None", "Some", "A lot"]},
             labels={"caller_emotion": "", "count": "Calls", "emotion_validated": "Emotion Validated"},
         )
         fig.update_layout(legend_title="", margin=dict(t=10, b=10))
